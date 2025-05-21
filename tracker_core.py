@@ -50,8 +50,157 @@ def init_db():
     # Initialize streak data if it doesn't exist
     cursor.execute("INSERT OR IGNORE INTO streaks (id, current_streak, longest_streak) VALUES (1, 0, 0)")
 
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS scheduled_focus_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scheduled_datetime TEXT NOT NULL,    -- ISO format: YYYY-MM-DDTHH:MM:SS
+            duration_minutes INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending', -- e.g., 'pending', 'active', 'completed', 'missed', 'cancelled'
+            notification_sent INTEGER DEFAULT 0, -- 0 for false, 1 for true
+            notes TEXT,                          -- Optional user notes
+            created_at TEXT NOT NULL             -- Timestamp when the schedule was created
+        )
+    ''')
+
+
     conn.commit()
     conn.close()
+
+def add_scheduled_session(scheduled_datetime, duration_minutes, notes=""):
+    """Adds a new scheduled focus session to the database."""
+    init_db()
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    created_at_ts = datetime.now().isoformat()
+    try:
+        cursor.execute('''
+            INSERT INTO scheduled_focus_sessions 
+            (scheduled_datetime, duration_minutes, notes, created_at, status, notification_sent)
+            VALUES (?, ?, ?, ?, 'pending', 0)
+        ''', (scheduled_datetime.isoformat(), duration_minutes, notes, created_at_ts))
+        conn.commit()
+        return cursor.lastrowid
+    except sqlite3.Error as e:
+        print(f"Database error adding scheduled session: {e}")
+        return None
+    finally:
+        conn.close()
+
+def get_scheduled_sessions(start_date=None, end_date=None, status_filter=None):
+    """
+    Retrieves scheduled sessions, optionally filtered by date range and status.
+    Dates should be datetime.date objects.
+    """
+    init_db()
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    query = "SELECT id, scheduled_datetime, duration_minutes, status, notification_sent, notes FROM scheduled_focus_sessions"
+    conditions = []
+    params = []
+
+    if start_date:
+        conditions.append("scheduled_datetime >= ?")
+        # Ensure we query from the beginning of the start_date
+        params.append(datetime.combine(start_date, datetime.min.time()).isoformat())
+    if end_date:
+        conditions.append("scheduled_datetime <= ?")
+        # Ensure we query up to the end of the end_date
+        params.append(datetime.combine(end_date, datetime.max.time()).isoformat())
+    if status_filter:
+        conditions.append("status = ?")
+        params.append(status_filter)
+    
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    
+    query += " ORDER BY scheduled_datetime ASC"
+        
+    cursor.execute(query, tuple(params))
+    
+    schedules = []
+    for row in cursor.fetchall():
+        schedules.append({
+            "id": row[0],
+            "scheduled_datetime": datetime.fromisoformat(row[1]),
+            "duration_minutes": row[2],
+            "status": row[3],
+            "notification_sent": bool(row[4]),
+            "notes": row[5]
+        })
+    conn.close()
+    return schedules
+
+def get_upcoming_pending_schedules():
+    """Retrieves all 'pending' scheduled sessions from now onwards."""
+    init_db()
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    now_iso = datetime.now().isoformat()
+    cursor.execute('''
+        SELECT id, scheduled_datetime, duration_minutes, status, notification_sent, notes 
+        FROM scheduled_focus_sessions
+        WHERE status = 'pending' AND scheduled_datetime >= ?
+        ORDER BY scheduled_datetime ASC
+    ''', (now_iso,))
+    schedules = []
+    for row in cursor.fetchall():
+        schedules.append({
+            "id": row[0],
+            "scheduled_datetime": datetime.fromisoformat(row[1]),
+            "duration_minutes": row[2],
+            "status": row[3],
+            "notification_sent": bool(row[4]),
+            "notes": row[5]
+        })
+    conn.close()
+    return schedules
+
+
+def update_scheduled_session_status(session_id, new_status):
+    init_db()
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE scheduled_focus_sessions SET status = ? WHERE id = ?", (new_status, session_id))
+        conn.commit()
+        return True
+    except sqlite3.Error as e:
+        print(f"Database error updating scheduled session status: {e}")
+        return False
+    finally:
+        conn.close()
+
+def update_scheduled_session_notification_sent(session_id, sent_status_bool):
+    init_db()
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    sent_status_int = 1 if sent_status_bool else 0
+    try:
+        cursor.execute("UPDATE scheduled_focus_sessions SET notification_sent = ? WHERE id = ?", (sent_status_int, session_id))
+        conn.commit()
+        return True
+    except sqlite3.Error as e:
+        print(f"Database error updating notification status: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def delete_scheduled_session(session_id):
+    init_db()
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM scheduled_focus_sessions WHERE id = ?", (session_id,))
+        conn.commit()
+        return True
+    except sqlite3.Error as e:
+        print(f"Database error deleting scheduled session: {e}")
+        return False
+    finally:
+        conn.close()
+
 
 def record_session(start_time, end_time):
     """Records a completed focus session in the database."""

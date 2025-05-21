@@ -368,6 +368,316 @@ class BlockerGUI(ctk.CTk):
 
         ctk.CTkButton(calendar_viewer, text="Close", command=calendar_viewer.destroy, font=self.button_font, corner_radius=8).pack(pady=5)
 
+    def refresh_calendar_schedule_highlights(self):
+        if not hasattr(self, 'cal') or not self.cal.winfo_exists():
+            return
+        
+        # Clear previous scheduled events from calendar view
+        try:
+            self.cal.calevent_remove(tag='scheduled_event')
+        except Exception: # Might fail if tag doesn't exist yet
+            pass
+
+        pending_schedules = tc.get_upcoming_pending_schedules()
+        scheduled_dates_to_mark = set()
+        for sched in pending_schedules:
+            scheduled_dates_to_mark.add(sched['scheduled_datetime'].date())
+        
+        for sched_date in scheduled_dates_to_mark:
+            # Ensure event_text is simple, actual details shown below calendar
+            self.cal.calevent_create(sched_date, 'S', 'scheduled_event') 
+        self.cal.tag_config('scheduled_event', background='orange', foreground='black')
+
+
+    def view_activity_calendar(self):
+        # ... (setup for calendar_viewer_window Toplevel, title, geometry) ...
+        self.calendar_viewer_window = ctk.CTkToplevel(self) # Store reference
+        self.calendar_viewer_window.title("Focus Activity & Scheduling")
+        self.calendar_viewer_window.geometry("700x750") # Adjust as needed
+        self.calendar_viewer_window.transient(self)
+        self.calendar_viewer_window.grab_set()
+        self.calendar_viewer_window.attributes("-topmost", True)
+
+
+        ctk.CTkLabel(self.calendar_viewer_window, text="Focus History & Scheduler", font=self.header_font).pack(pady=10)
+
+        cal_container_frame = ctk.CTkFrame(self.calendar_viewer_window, corner_radius=10)
+        cal_container_frame.pack(pady=10, padx=10, fill=ctk.BOTH, expand=True)
+
+        # --- Initialize and populate daily_durations for past sessions FIRST ---
+        past_sessions_data, _ = tc.get_session_history()
+        past_focus_dates = []
+        daily_durations = {} # DEFINED AND INITIALIZED HERE
+        for s_past in past_sessions_data:
+            try:
+                session_start_dt = datetime.fromisoformat(s_past['start'])
+                session_date = session_start_dt.date()
+                daily_durations[session_date] = daily_durations.get(session_date, 0) + s_past['duration_minutes'] # POPULATED HERE
+                if session_date not in past_focus_dates:
+                    past_focus_dates.append(session_date)
+            except ValueError:
+                print(f"Warning: Could not parse date from past session: {s_past.get('start')}")
+                continue
+        # --- End of daily_durations initialization ---
+
+        # --- Calendar Widget setup ---
+        # Use your existing styling for tkcalendar, try to match CTk theme
+        ctk_bg_color = self._apply_appearance_mode(ctk.ThemeManager.theme["CTkFrame"]["fg_color"])
+        ctk_text_color = self._apply_appearance_mode(ctk.ThemeManager.theme["CTkLabel"]["text_color"])
+        ctk_btn_color = self._apply_appearance_mode(ctk.ThemeManager.theme["CTkButton"]["fg_color"])
+        
+        self.cal = Calendar(cal_container_frame, selectmode='day',
+                            font="Arial 10",
+                            background=ctk_bg_color,
+                            foreground=ctk_text_color,
+                            headersbackground=ctk_btn_color,
+                            headersforeground=self._apply_appearance_mode(ctk.ThemeManager.theme["CTkButton"]["text_color"]),
+                            selectbackground=self._apply_appearance_mode(ctk.ThemeManager.theme["CTkEntry"]["fg_color"]),
+                            weekendbackground=self._apply_appearance_mode(ctk.ThemeManager.theme["CTkFrame"]["top_fg_color"]),
+                            othermonthbackground=self._apply_appearance_mode(ctk.ThemeManager.theme["CTkFrame"]["top_fg_color"]),
+                            bordercolor=self._apply_appearance_mode(ctk.ThemeManager.theme["CTkFrame"]["border_color"]),
+                            date_pattern='yyyy-mm-dd', # Ensure this pattern is used
+                            locale='en_US',
+                            cursor="hand1")
+        
+        # Highlight past focus days using the populated daily_durations/past_focus_dates
+        for focus_date_past in past_focus_dates:
+            self.cal.calevent_create(focus_date_past, 'Past Focus', 'focus_day')
+        self.cal.tag_config('focus_day', background="#3498DB", foreground='white') # Blue for past focus
+
+        self.refresh_calendar_schedule_highlights() # For future scheduled events
+
+        self.cal.pack(pady=10, padx=10, fill=ctk.BOTH, expand=True)
+
+
+        # --- Frame for Schedule Actions (Selected Date Label & New Schedule Button) ---
+        self.schedule_details_frame = ctk.CTkFrame(self.calendar_viewer_window, fg_color="transparent")
+        self.schedule_details_frame.pack(pady=10, padx=10, fill=ctk.X)
+        
+        # This label will be updated by on_calendar_date_select_extended
+        self.daily_summary_label = ctk.CTkLabel(self.schedule_details_frame, text="Select a date.", font=self.small_font)
+        self.daily_summary_label.pack(side=ctk.LEFT, padx=(0,10), expand=True, fill=ctk.X)
+
+        self.add_schedule_button = ctk.CTkButton(self.schedule_details_frame, text="New Schedule",
+                                                 command=self.open_schedule_dialog, state=ctk.DISABLED)
+        self.add_schedule_button.pack(side=ctk.RIGHT)
+
+        # --- Frame to list scheduled items for the selected date ---
+        self.scheduled_items_listbox_frame = ctk.CTkScrollableFrame(self.calendar_viewer_window, height=150, label_text="Scheduled for Selected Date")
+        self.scheduled_items_listbox_frame.pack(pady=5, padx=10, fill=ctk.X)
+        self._update_scheduled_items_display(None) # Initial placeholder
+
+
+        # --- Bindings and summary labels ---
+        # Now daily_durations is defined and can be passed
+        self.cal.bind("<<CalendarSelected>>", lambda event: self.on_calendar_date_select_extended(event, daily_durations))
+        # Initial call to set the state based on today's date (or default calendar selection)
+        self.on_calendar_date_select_extended(None, daily_durations) 
+
+        # --- Overall Streak and Focus Time (as before) ---
+        current_streak_overall, longest_streak_overall = tc.get_streak_info()
+        _, total_duration_all_sessions = tc.get_session_history()
+        
+        ctk.CTkLabel(self.calendar_viewer_window, text=f"Current Streak: {current_streak_overall} days | Longest: {longest_streak_overall} days",
+                     font=self.small_font).pack(pady=(5, 0))
+        ctk.CTkLabel(self.calendar_viewer_window, text=f"Overall Focus Time: {total_duration_all_sessions:.1f} minutes",
+                     font=self.small_font).pack(pady=(0, 10))
+
+        ctk.CTkButton(self.calendar_viewer_window, text="Close", command=self.calendar_viewer_window.destroy, font=self.button_font, corner_radius=8).pack(pady=10)
+
+    # Ensure the on_calendar_date_select_extended method correctly uses daily_durations_past
+    def on_calendar_date_select_extended(self, event, daily_durations_past): # Renamed for clarity
+        if not hasattr(self, 'cal') or not self.cal.winfo_exists(): return
+        try:
+            # Get selected date as a datetime.date object directly
+            selected_date_obj = self.cal.selection_get()
+            if selected_date_obj is None: # selection_get() can return None if no date is truly selected
+                 # Fallback to get_date if selection_get is None, though it might be problematic
+                 selected_date_str_cal = self.cal.get_date() 
+                 selected_date_obj = datetime.strptime(selected_date_str_cal, self.cal._properties['date_pattern']).date()
+        except Exception as e:
+            print(f"Error getting selected date: {e}")
+            self.daily_summary_label.configure(text="Please select a date.")
+            self.add_schedule_button.configure(state=ctk.DISABLED)
+            self._update_scheduled_items_display(None)
+            return
+
+        today = datetime.now().date()
+        
+        # Update the daily_summary_label based on whether the date is past or future
+        if selected_date_obj < today: # Past date
+            self.add_schedule_button.configure(state=ctk.DISABLED, text="New Schedule")
+            total_for_day = daily_durations_past.get(selected_date_obj, 0)
+            if total_for_day > 0:
+                self.daily_summary_label.configure(text=f"Past Focus on {selected_date_obj.strftime('%b %d, %Y')}: {total_for_day:.1f} mins")
+            else:
+                self.daily_summary_label.configure(text=f"No past focus recorded for {selected_date_obj.strftime('%b %d, %Y')}.")
+            self._update_scheduled_items_display(None) # Clear scheduled items for past dates
+        else: # Today or Future date
+            self.daily_summary_label.configure(text=f"Actions for {selected_date_obj.strftime('%b %d, %Y')}:")
+            self.add_schedule_button.configure(state=ctk.NORMAL, text=f"Schedule for {selected_date_obj.strftime('%b %d')}")
+            self._update_scheduled_items_display(selected_date_obj)
+
+    def _update_scheduled_items_display(self, date_obj):
+        for widget in self.scheduled_items_listbox_frame.winfo_children():
+            widget.destroy()
+
+        if date_obj is None:
+            ctk.CTkLabel(self.scheduled_items_listbox_frame, text="Past date selected or no date.").pack(pady=5)
+            return
+
+        schedules = tc.get_scheduled_sessions(start_date=date_obj, end_date=date_obj, status_filter='pending')
+        if not schedules:
+            ctk.CTkLabel(self.scheduled_items_listbox_frame, text="No pending schedules for this date.").pack(pady=5)
+        else:
+            for sched in schedules:
+                item_text = f"{sched['scheduled_datetime'].strftime('%H:%M')} for {sched['duration_minutes']}m"
+                if sched['notes']: item_text += f" ({sched['notes'][:20]}...)"
+                
+                item_frame = ctk.CTkFrame(self.scheduled_items_listbox_frame)
+                item_frame.pack(fill=ctk.X, pady=2)
+                ctk.CTkLabel(item_frame, text=item_text).pack(side=ctk.LEFT, padx=5, expand=True, anchor='w')
+                
+                edit_btn = ctk.CTkButton(item_frame, text="Edit", width=50,
+                                        command=lambda s=sched: self.open_schedule_dialog(existing_schedule=s))
+                edit_btn.pack(side=ctk.RIGHT, padx=2)
+                
+                del_btn = ctk.CTkButton(item_frame, text="Del", width=40, fg_color="tomato",
+                                        command=lambda s_id=sched['id']: self._delete_schedule_action(s_id))
+                del_btn.pack(side=ctk.RIGHT, padx=2)
+
+    def _delete_schedule_action(self, schedule_id):
+        if messagebox.askyesno("Confirm Delete", "Delete this scheduled session?"):
+            if tc.delete_scheduled_session(schedule_id):
+                messagebox.showinfo("Success", "Schedule deleted.")
+                self.refresh_calendar_schedule_highlights()
+                # Refresh the list for the currently selected date
+                if hasattr(self, 'cal') and self.cal.winfo_exists() and self.cal.selection_get():
+                    self._update_scheduled_items_display(self.cal.selection_get())
+                else: # Fallback if no date is selected somehow
+                    self._update_scheduled_items_display(None)
+
+            else:
+                messagebox.showerror("Error", "Could not delete schedule.")
+
+
+    def open_schedule_dialog(self, existing_schedule=None):
+        # --- This is where you build the CTkToplevel dialog ---
+        # Inputs: Date (pre-filled), Time (HH:MM), Duration (mins), Notes
+        # Buttons: Save, Cancel
+        # On Save: Call tc.add_scheduled_session or tc.update_scheduled_session
+        # Then, refresh calendar highlights and the list for the selected date.
+
+        dialog = ctk.CTkToplevel(self.calendar_viewer_window if hasattr(self, 'calendar_viewer_window') and self.calendar_viewer_window.winfo_exists() else self)
+        dialog.grab_set() # Make dialog modal
+        dialog.attributes("-topmost", True)
+
+        if existing_schedule:
+            dialog.title("Edit Schedule")
+            # Pre-fill fields from existing_schedule
+            schedule_dt = existing_schedule['scheduled_datetime']
+            initial_date = schedule_dt.date()
+            initial_hour = f"{schedule_dt.hour:02d}"
+            initial_minute = f"{schedule_dt.minute:02d}"
+            initial_duration = str(existing_schedule['duration_minutes'])
+            initial_notes = existing_schedule['notes'] if existing_schedule['notes'] else ""
+        else:
+            dialog.title("New Schedule")
+            try:
+                initial_date = self.cal.selection_get() # Get current selection from calendar
+                if initial_date < datetime.now().date(): # Should not happen if button state is managed
+                    messagebox.showerror("Error", "Cannot schedule for a past date.", parent=dialog)
+                    dialog.destroy()
+                    return
+            except Exception:
+                messagebox.showerror("Error", "No date selected in calendar.", parent=dialog)
+                dialog.destroy()
+                return
+            
+            # Default new schedule values
+            initial_hour = "09"
+            initial_minute = "00"
+            initial_duration = "25"
+            initial_notes = ""
+
+        dialog.geometry("400x350")
+        ctk.CTkLabel(dialog, text=f"Date: {initial_date.strftime('%Y-%m-%d')}", font=self.label_font).pack(pady=10)
+
+        # Time Input Frame
+        time_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        time_frame.pack(pady=5, padx=20, fill=ctk.X)
+        ctk.CTkLabel(time_frame, text="Time:").pack(side=ctk.LEFT)
+        hours_val = [f"{i:02d}" for i in range(24)]
+        minutes_val = [f"{i:02d}" for i in range(0, 60, 5)] # Stepped minutes
+        
+        hour_var = ctk.StringVar(value=initial_hour)
+        minute_var = ctk.StringVar(value=initial_minute)
+
+        hour_menu = ctk.CTkOptionMenu(time_frame, variable=hour_var, values=hours_val, width=70)
+        hour_menu.pack(side=ctk.LEFT, padx=5)
+        ctk.CTkLabel(time_frame, text=":").pack(side=ctk.LEFT)
+        minute_menu = ctk.CTkOptionMenu(time_frame, variable=minute_var, values=minutes_val, width=70)
+        minute_menu.pack(side=ctk.LEFT, padx=5)
+
+        # Duration Input
+        dur_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        dur_frame.pack(pady=5, padx=20, fill=ctk.X)
+        ctk.CTkLabel(dur_frame, text="Duration (mins):").pack(side=ctk.LEFT)
+        duration_entry = ctk.CTkEntry(dur_frame, width=70)
+        duration_entry.insert(0, initial_duration)
+        duration_entry.pack(side=ctk.LEFT, padx=5)
+
+        # Notes
+        ctk.CTkLabel(dialog, text="Notes:").pack(pady=(5,0), padx=20, anchor='w')
+        notes_text = ctk.CTkTextbox(dialog, height=60)
+        notes_text.pack(pady=5, padx=20, fill=ctk.X)
+        if initial_notes: notes_text.insert("1.0", initial_notes)
+
+        def save_action():
+            hour = int(hour_var.get())
+            minute = int(minute_var.get())
+            try:
+                duration = int(duration_entry.get())
+                if duration <=0: raise ValueError("Duration must be positive")
+            except ValueError as e:
+                messagebox.showerror("Invalid Input", f"Duration is invalid: {e}", parent=dialog)
+                return
+            
+            notes = notes_text.get("1.0", "end-1c").strip()
+            
+            scheduled_dt = datetime.combine(initial_date, datetime(initial_date.year, initial_date.month, initial_date.day, hour, minute).time())
+
+            # Basic validation for future time if it's for today
+            if scheduled_dt.date() == datetime.now().date() and scheduled_dt.time() <= datetime.now().time():
+                messagebox.showerror("Invalid Time", "Scheduled time for today must be in the future.", parent=dialog)
+                return
+
+            if existing_schedule: # Update logic - not fully implemented in tc yet, but structure is there
+                # For a full update, you might need a tc.update_scheduled_session(id, dt, dur, notes)
+                # For simplicity now, let's delete and re-add if editing is complex
+                # Or, if tc.update_scheduled_session handles all fields:
+                # success = tc.update_scheduled_session(existing_schedule['id'], scheduled_dt, duration, notes)
+                # For now, let's assume we'd delete and add for simplicity if not direct update
+                messagebox.showinfo("Info", "Update logic needs full tc.update_scheduled_session.", parent=dialog)
+                return # Placeholder
+            else:
+                new_id = tc.add_scheduled_session(scheduled_dt, duration, notes)
+                if new_id:
+                    messagebox.showinfo("Success", "Session scheduled!", parent=dialog)
+                else:
+                    messagebox.showerror("Error", "Failed to schedule session.", parent=dialog)
+                    return # Don't close if error
+
+            dialog.destroy()
+            self.refresh_calendar_schedule_highlights()
+            self._update_scheduled_items_display(initial_date)
+
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(pady=10, padx=20, fill=ctk.X)
+        ctk.CTkButton(btn_frame, text="Save", command=save_action).pack(side=ctk.RIGHT, padx=5)
+        ctk.CTkButton(btn_frame, text="Cancel", command=dialog.destroy, fg_color="gray50").pack(side=ctk.RIGHT)
+
 
 if __name__ == "__main__":
     if not is_admin():
