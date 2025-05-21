@@ -1,8 +1,19 @@
 import sqlite3
 import os
 from datetime import datetime, timedelta
+from platformdirs import user_data_dir # Import the necessary function
 
-DB_FILE = "focus_data.db"
+# Define your application name and author (important for platformdirs)
+APP_NAME = "FocusModeApp" # Replace with your actual app name
+APP_AUTHOR = "JoshiAarya" # Replace with your name or company
+
+# Dynamically determine the database file path
+DATA_DIR = user_data_dir(appname=APP_NAME, appauthor=APP_AUTHOR)
+# Ensure the directory exists
+os.makedirs(DATA_DIR, exist_ok=True)
+DB_FILE = os.path.join(DATA_DIR, "focus_data.db")
+
+# --- Rest of your time_controller.py code (remains largely the same) ---
 
 def init_db():
     """Initializes the SQLite database and creates tables if they don't exist."""
@@ -152,8 +163,13 @@ def get_streak_info():
 # Example usage (for testing)
 if __name__ == "__main__":
     # Clean up previous data for consistent testing
+    # Note: This will delete data from the platform-specific data directory
     if os.path.exists(DB_FILE):
         os.remove(DB_FILE)
+    if not os.path.exists(os.path.dirname(DB_FILE)):
+        os.makedirs(os.path.dirname(DB_FILE))
+
+    print(f"Database will be stored at: {DB_FILE}")
 
     print("--- Initializing DB and State ---")
     init_db()
@@ -163,12 +179,10 @@ if __name__ == "__main__":
     print(f"Initial Sessions: {len(sessions)}, Total Duration: {total_duration:.1f} mins")
 
     print("\n--- Simulating sessions for a streak: Day 1, Day 2, Day 3 (today) ---")
-    # Simulate dates: two days ago, yesterday, and today
     two_days_ago = datetime.now() - timedelta(days=2)
     yesterday = datetime.now() - timedelta(days=1)
     today = datetime.now()
 
-    # Record sessions for a continuous streak
     record_session(two_days_ago - timedelta(minutes=25), two_days_ago)
     print(f"Recorded session on {two_days_ago.date()}")
 
@@ -178,28 +192,22 @@ if __name__ == "__main__":
     record_session(today - timedelta(minutes=25), today)
     print(f"Recorded session on {today.date()}")
 
-    # Update and check streak after recording all sessions
     current_s, longest_s = update_streak()
     print(f"Current Streak after 3 consecutive sessions: Current={current_s}, Longest={longest_s}")
 
     print("\n--- Simulating a broken streak (no session for a day, then a new session) ---")
-    # Simulate a day passing without a session
-    # Then record a session two days from now
-    day_after_tomorrow = datetime.now() + timedelta(days=2) # This will be after the gap
+    day_after_tomorrow = datetime.now() + timedelta(days=2)
     record_session(day_after_tomorrow - timedelta(minutes=25), day_after_tomorrow)
     print(f"Recorded session on {day_after_tomorrow.date()} (after a gap)")
 
-    # Update streak after the gap and new session
     current_s, longest_s = update_streak()
     print(f"Current Streak after intentional gap: Current={current_s}, Longest={longest_s}")
 
     print("\n--- Testing Edge Case: No session today ---")
-    # Clean up data to ensure streak is tested from scratch
     if os.path.exists(DB_FILE):
         os.remove(DB_FILE)
-    init_db() # Re-initialize DB
+    init_db()
     
-    # Record a session yesterday, but not today
     yesterday_test = datetime.now() - timedelta(days=1)
     record_session(yesterday_test - timedelta(minutes=25), yesterday_test)
     print(f"Recorded session on {yesterday_test.date()} (but not today)")
