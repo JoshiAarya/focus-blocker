@@ -120,10 +120,16 @@ class BlockerGUI:
 
     def stop_focus(self):
         """Stops the focus mode, unblocks sites, and records the session."""
-        if self.focus_timer and self.focus_timer.running:
-            self.focus_timer.stop_timer()
-            self.timer_running = False
-        
+        # Check if there was a timer associated with this session
+        if self.focus_timer:
+            # If the FocusTimer object reports it's running (e.g., manual stop)
+            if self.focus_timer.running:
+                self.focus_timer.stop_timer() # Tell the timer object to stop
+
+        # Crucially, reset the GUI's timer_running flag.
+        # This indicates that, from the GUI's perspective, no timed session is active.
+        self.timer_running = False
+
         try:
             bc.unblock_all()
             bc.stop_focus_server()
@@ -133,7 +139,7 @@ class BlockerGUI:
             if self.session_start_time:
                 session_end_time = datetime.now()
                 # Record session only if it was at least 1 second long
-                if (session_end_time - self.session_start_time).total_seconds() >= 1: 
+                if (session_end_time - self.session_start_time).total_seconds() >= 1:
                     tc.record_session(self.session_start_time, session_end_time)
                     tc.update_streak()
                 self.session_start_time = None
