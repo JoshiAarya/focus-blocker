@@ -1,58 +1,96 @@
 import os
 import sys
 import ctypes
-import tkinter as tk
-from tkinter import messagebox, scrolledtext, ttk
+import customtkinter as ctk
+from tkinter import messagebox
 from datetime import datetime, timedelta
-from tkcalendar import Calendar, DateEntry # Import DateEntry as well
+from tkcalendar import Calendar, DateEntry
 
-# Assuming blocker_core.py is bc and tracker_core.py is tc
-import blocker_core as bc # Now handles blocklist via SQLite
-from timer_logic import FocusTimer # Your existing timer logic
-import tracker_core as tc # Your existing time tracking logic via SQLite
+import blocker_core as bc
+from timer_logic import FocusTimer
+import tracker_core as tc
+
+ctk.set_appearance_mode("System")
+ctk.set_default_color_theme("blue")
 
 def is_admin():
-    """Checks if the script is running with administrator privileges."""
     if os.name == 'nt':
         try:
             return ctypes.windll.shell32.IsUserAnAdmin()
         except:
             return False
     else:
-        # On Linux/macOS, check if effective UID is 0 (root)
         return os.geteuid() == 0
 
-class BlockerGUI:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Focus Mode Website Blocker")
-        self.root.geometry("450x650")
-        self.root.resizable(False, False)
-        self.root.configure(bg="#F0F0F0")
+class BlockerGUI(ctk.CTk):
+    def __init__(self):
+        super().__init__()
 
-        self.style = ttk.Style()
-        self.style.theme_use('clam')
+        self.title("✨ Focus Mode App ✨")
+        # self.geometry("480x700") # Remove fixed geometry for fullscreen
+
+        # --- Fullscreen Setup ---
+        self._is_fullscreen = True # Start in fullscreen mode
+        self.attributes("-fullscreen", self._is_fullscreen)
+        # Store an initial reasonable size for when exiting fullscreen
+        self._initial_windowed_geometry = "1024x768" # Or your previous "480x700" if preferred
+
+        # Bind Escape and F11 to toggle fullscreen
+        self.bind("<Escape>", self.toggle_fullscreen)
+        self.bind("<F11>", self.toggle_fullscreen)
+
+
+        # --- Fonts (same as before) ---
+        self.title_font = ctk.CTkFont(family="Arial", size=24, weight="bold")
+        self.header_font = ctk.CTkFont(family="Arial", size=18, weight="bold")
+        self.label_font = ctk.CTkFont(family="Arial", size=14)
+        self.button_font = ctk.CTkFont(family="Arial", size=12, weight="bold")
+        self.small_font = ctk.CTkFont(family="Arial", size=12)
+        self.countdown_font = ctk.CTkFont(family="Arial", size=22, weight="bold")
+
+        # --- Main Content Frame to help center content ---
+        # This frame will hold all your other frames and can be centered.
+        # For fullscreen, you might want this to expand or stay centered.
+        # Let's try keeping it relatively centered for now.
+        # To make it expand, you'd use fill=ctk.BOTH, expand=True on a parent or this.
+
+        # For better fullscreen layout, let's put everything in a central column
+        # that doesn't necessarily stretch to full screen width unless we want it to.
+        # We'll use a main_container_frame that is packed to expand vertically
+        # and then use an inner_content_frame to hold the actual UI elements
+        # with a max width to prevent them from becoming too wide on large screens.
+
+        self.main_container_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_container_frame.pack(pady=20, padx=20, fill=ctk.BOTH, expand=True)
+
+        # This inner frame will hold the UI elements and have a max width
+        self.inner_content_frame = ctk.CTkFrame(self.main_container_frame, fg_color="transparent", width=460) # Adjust width as needed
+        self.inner_content_frame.pack(pady=20, padx=20, expand=False) # Centered by default if container expands
+        # To truly center it if main_container_frame expands fully:
+        # self.main_container_frame.grid_rowconfigure(0, weight=1)
+        # self.main_container_frame.grid_columnconfigure(0, weight=1)
+        # self.inner_content_frame.grid(row=0, column=0, sticky="")
+
 
         # --- Top Status and Title Frame ---
-        top_frame = tk.Frame(self.root, bg="#E0E0E0", bd=2, relief=tk.RAISED)
-        top_frame.pack(pady=(20, 10), padx=20, fill=tk.X)
+        top_frame = ctk.CTkFrame(self.inner_content_frame, corner_radius=10)
+        top_frame.pack(pady=(0, 10), padx=0, fill=ctk.X) # padx=0 as inner_content_frame has padding
 
-        tk.Label(top_frame, text="✨ Focus Mode App ✨", font=("Arial", 20, "bold"), bg="#E0E0E0", fg="#333333").pack(pady=10)
-        self.status_label = tk.Label(top_frame, text="Status: Inactive", fg="red", font=("Arial", 14, "bold"), bg="#E0E0E0")
+        ctk.CTkLabel(top_frame, text="✨ Focus Mode App ✨", font=self.title_font).pack(pady=10)
+        self.status_label = ctk.CTkLabel(top_frame, text="Status: Inactive", font=self.header_font, text_color="red")
         self.status_label.pack(pady=(0, 10))
 
         # --- Timer Input Frame ---
-        timer_input_frame = tk.Frame(self.root, bg="#F8F8F8", bd=1, relief=tk.GROOVE)
-        timer_input_frame.pack(pady=10, padx=20, fill=tk.X)
+        timer_input_frame = ctk.CTkFrame(self.inner_content_frame, corner_radius=10)
+        timer_input_frame.pack(pady=10, padx=0, fill=ctk.X)
 
-        # Updated label to indicate seconds
-        tk.Label(timer_input_frame, text="Set Focus Duration (Minutes):", font=("Arial", 12), bg="#F8F8F8").pack(pady=(10, 5))
+        ctk.CTkLabel(timer_input_frame, text="Set Focus Duration (Minutes):", font=self.label_font).pack(pady=(10, 5))
 
-        self.timer_entry = tk.Entry(timer_input_frame, width=8, font=("Arial", 16), justify='center', bd=2, relief=tk.SUNKEN)
-        self.timer_entry.insert(0, "25") # Default to 25 minutes in seconds
+        self.timer_entry = ctk.CTkEntry(timer_input_frame, width=100, font=self.header_font, justify='center', corner_radius=6)
+        self.timer_entry.insert(0, "25")
         self.timer_entry.pack(pady=(0, 10))
 
-        self.countdown_label = tk.Label(self.root, text="Ready to focus!", font=("Arial", 18, "bold"), fg="#4CAF50", bg="#F0F0F0")
+        self.countdown_label = ctk.CTkLabel(self.inner_content_frame, text="Ready to focus!", font=self.countdown_font, text_color="#4CAF50")
         self.countdown_label.pack(pady=15)
 
         self.focus_timer = None
@@ -60,285 +98,290 @@ class BlockerGUI:
         self.session_start_time = None
 
         # --- Control Buttons Frame ---
-        button_frame = tk.Frame(self.root, bg="#F0F0F0")
-        button_frame.pack(pady=10, padx=20, fill=tk.X)
+        button_frame = ctk.CTkFrame(self.inner_content_frame, fg_color="transparent")
+        button_frame.pack(pady=10, padx=0, fill=ctk.X)
 
-        self.style.configure('TButton', font=('Arial', 12), padding=10)
-        self.style.map('TButton', background=[('active', '#D0D0D0')])
+        self.start_color = "#2ECC71"
+        self.stop_color = "#E74C3C"
+        self.edit_color = "#3498DB"
+        self.calendar_color = "#9B59B6"
+        self.exit_color = "#7F8C8D" # Gray
+        self.fullscreen_toggle_color = "#F39C12" # Orange for fullscreen toggle
 
-        ttk.Button(button_frame, text="🚀 Start Focus Mode", command=self.start_focus_with_timer, style='Green.TButton').pack(pady=7, fill=tk.X)
-        self.style.configure('Green.TButton', background='green', foreground='white')
-        self.style.map('Green.TButton', background=[('active', '#009900')])
-
-        ttk.Button(button_frame, text="🛑 Stop Focus Mode", command=self.stop_focus, style='Red.TButton').pack(pady=7, fill=tk.X)
-        self.style.configure('Red.TButton', background='gray', foreground='white')
-        self.style.map('Red.TButton', background=[('active', '#A0A0A0')])
-
-        # Changed button text and command
-        ttk.Button(button_frame, text="🚫 Edit Blocklist", command=self.edit_blocklist).pack(pady=7, fill=tk.X)
-        ttk.Button(button_frame, text="📅 View Activity Calendar", command=self.view_activity_calendar).pack(pady=7, fill=tk.X)
-        ttk.Button(button_frame, text="🚪 Exit App", command=self.root.quit).pack(pady=7, fill=tk.X)
+        ctk.CTkButton(button_frame, text="🚀 Start Focus Mode", command=self.start_focus_with_timer, font=self.button_font, fg_color=self.start_color, hover_color="#27AE60", corner_radius=8).pack(pady=7, fill=ctk.X, ipady=5)
+        ctk.CTkButton(button_frame, text="🛑 Stop Focus Mode", command=self.stop_focus, font=self.button_font, fg_color=self.stop_color, hover_color="#C0392B", corner_radius=8).pack(pady=7, fill=ctk.X, ipady=5)
+        ctk.CTkButton(button_frame, text="🚫 Edit Blocklist", command=self.edit_blocklist, font=self.button_font, fg_color=self.edit_color, hover_color="#2980B9", corner_radius=8).pack(pady=7, fill=ctk.X, ipady=5)
+        ctk.CTkButton(button_frame, text="📅 View Activity Calendar", command=self.view_activity_calendar, font=self.button_font, fg_color=self.calendar_color, hover_color="#8E44AD", corner_radius=8).pack(pady=7, fill=ctk.X, ipady=5)
+        
+        # Add a button to toggle fullscreen if Escape/F11 is not obvious
+        ctk.CTkButton(button_frame, text="💻 Toggle Fullscreen (Esc/F11)", command=self.toggle_fullscreen, font=self.button_font, fg_color=self.fullscreen_toggle_color, hover_color="#D35400", corner_radius=8).pack(pady=7, fill=ctk.X, ipady=5)
+        
+        ctk.CTkButton(button_frame, text="🚪 Exit App", command=self.quit_app, font=self.button_font, fg_color=self.exit_color, hover_color="#606B6D", corner_radius=8).pack(pady=7, fill=ctk.X, ipady=5)
 
         # --- Streak and Total Time Display ---
-        self.streak_label = tk.Label(self.root, text="", font=("Arial", 12), bg="#F0F0F0", fg="#333333")
-        self.streak_label.pack(pady=(10, 0))
-        self.total_time_label = tk.Label(self.root, text="", font=("Arial", 12), bg="#F0F0F0", fg="#333333")
-        self.total_time_label.pack(pady=(0, 10))
-        
-        self._update_activity_display()
+        stats_frame = ctk.CTkFrame(self.inner_content_frame, corner_radius=10)
+        stats_frame.pack(pady=(10,0), padx=0, fill=ctk.X) # pady 0 at bottom as container has padding
 
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.streak_label = ctk.CTkLabel(stats_frame, text="", font=self.small_font)
+        self.streak_label.pack(pady=(10, 5))
+        self.total_time_label = ctk.CTkLabel(stats_frame, text="", font=self.small_font)
+        self.total_time_label.pack(pady=(5, 10))
+
+        self._update_activity_display()
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def toggle_fullscreen(self, event=None):
+        self._is_fullscreen = not self._is_fullscreen
+        self.attributes("-fullscreen", self._is_fullscreen)
+        if not self._is_fullscreen:
+            # When exiting fullscreen, you might want to set a specific size
+            self.geometry(self._initial_windowed_geometry)
+            # Or simply let the window manager decide by not setting geometry
+            # self.state('normal') # May also be useful
+
+    def quit_app(self):
+        self.on_closing()
+
+    # ... (rest of your methods: on_closing, _update_activity_display, start_focus, stop_focus, etc. remain the same) ...
+    # Make sure to copy ALL your other methods here without changes unless they are UI related.
+    # For brevity, I am not re-pasting all of them but you should have them.
 
     def on_closing(self):
-        """Handles graceful shutdown when the window is closed."""
-        if messagebox.askokcancel("Exit Application", "Are you sure you want to exit? Ensure Focus Mode is stopped."):
-            self.stop_focus()
-            self.root.destroy()
+        if messagebox.askokcancel("Exit Application", "Are you sure you want to exit? Ensure Focus Mode is stopped if active."):
+            if self.timer_running: 
+                self.stop_focus() 
+            self.destroy()
 
     def _update_activity_display(self):
-        """Updates the streak and total focus time labels."""
         current_streak, longest_streak = tc.get_streak_info()
         sessions, total_duration = tc.get_session_history()
-        
-        self.streak_label.config(text=f"🔥 Current Streak: {current_streak} days (Longest: {longest_streak} days)")
-        self.total_time_label.config(text=f"⏱️ Total Focus Time: {total_duration:.1f} minutes")
+        self.streak_label.configure(text=f"🔥 Current Streak: {current_streak} days (Longest: {longest_streak} days)")
+        self.total_time_label.configure(text=f"⏱️ Total Focus Time: {total_duration:.1f} minutes")
 
     def start_focus(self):
-        """Starts the focus mode by blocking sites and starting the HTTP server."""
         try:
-            bc.block_sites() # Call the new block_sites function
+            bc.block_sites()
             bc.start_focus_server()
-            self.status_label.config(text="Status: Focus Mode ON", fg="green")
+            self.status_label.configure(text="Status: Focus Mode ON", text_color="green")
             self.session_start_time = datetime.now()
         except PermissionError:
             messagebox.showerror("Permission Error", "Admin rights required to modify the hosts file. Please restart as Administrator.")
-            self.stop_focus() # Ensure everything is reset if we can't block
+            self.stop_focus()
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred while starting Focus Mode: {e}")
             self.stop_focus()
 
-
     def stop_focus(self):
-        """Stops the focus mode, unblocks sites, and records the session."""
-        # Check if there was a timer associated with this session
-        if self.focus_timer:
-            # If the FocusTimer object reports it's running (e.g., manual stop)
-            if self.focus_timer.running:
-                self.focus_timer.stop_timer() # Tell the timer object to stop
-
-        # Crucially, reset the GUI's timer_running flag.
-        # This indicates that, from the GUI's perspective, no timed session is active.
+        if self.focus_timer and self.focus_timer.running:
+            self.focus_timer.stop_timer()
         self.timer_running = False
 
         try:
             bc.unblock_all()
             bc.stop_focus_server()
-            self.status_label.config(text="Status: Inactive", fg="red")
-            self.countdown_label.config(text="Ready to focus!")
+            self.status_label.configure(text="Status: Inactive", text_color="red")
+            self.countdown_label.configure(text="Ready to focus!", text_color="#4CAF50") # Use a defined color
 
             if self.session_start_time:
                 session_end_time = datetime.now()
-                # Record session only if it was at least 1 second long
                 if (session_end_time - self.session_start_time).total_seconds() >= 1:
                     tc.record_session(self.session_start_time, session_end_time)
                     tc.update_streak()
                 self.session_start_time = None
-
             self._update_activity_display()
-            messagebox.showinfo("Focus Mode", "Focus Mode ended. All sites are unblocked.")
         except PermissionError:
             messagebox.showwarning("Permission Warning", "Admin rights required to unblock sites. Please manually check your hosts file.")
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred while stopping Focus Mode: {e}")
 
-
     def edit_blocklist(self):
-        """Opens a new window to edit the list of blocked websites."""
-        editor = tk.Toplevel(self.root)
+        editor = ctk.CTkToplevel(self)
         editor.title("Edit Blocked Websites")
-        editor.geometry("450x450")
-        editor.transient(self.root)
+        editor.geometry("450x500")
+        editor.transient(self)
         editor.grab_set()
-        editor.focus_set()
-        editor.configure(bg="#F0F0F0")
 
-        tk.Label(editor, text="Blocked Sites (one per line):", font=("Arial", 12, "bold"), bg="#F0F0F0").pack(pady=10)
+        ctk.CTkLabel(editor, text="Blocked Sites:", font=self.label_font).pack(pady=10)
 
-        # Frame for input and buttons
-        input_frame = tk.Frame(editor, bg="#F0F0F0")
-        input_frame.pack(pady=5, padx=10, fill=tk.X)
+        input_frame = ctk.CTkFrame(editor, fg_color="transparent")
+        input_frame.pack(pady=5, padx=10, fill=ctk.X)
 
-        tk.Label(input_frame, text="Add New Site:", font=("Arial", 10), bg="#F0F0F0").pack(side=tk.LEFT, padx=(0, 5))
-        new_site_entry = tk.Entry(input_frame, width=30, font=("Arial", 10), bd=2, relief=tk.SUNKEN)
-        new_site_entry.pack(side=tk.LEFT, expand=True, fill=tk.X)
+        new_site_entry = ctk.CTkEntry(input_frame, placeholder_text="Enter site to block (e.g., youtube.com)", width=250, font=self.small_font, corner_radius=6)
+        new_site_entry.pack(side=ctk.LEFT, expand=True, fill=ctk.X, padx=(0,10))
 
-        # Listbox to display blocked sites
-        list_frame = tk.Frame(editor, bg="#F0F0F0")
-        list_frame.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
+        self.blocklist_scrollable_frame = ctk.CTkScrollableFrame(editor, height=250, corner_radius=10) # Instance variable if accessed elsewhere
+        self.blocklist_scrollable_frame.pack(padx=10, pady=5, fill=ctk.BOTH, expand=True)
 
-        blocklist_listbox = tk.Listbox(list_frame, height=10, font=("Arial", 10), bd=2, relief=tk.SUNKEN)
-        blocklist_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        scrollbar = tk.Scrollbar(list_frame, orient="vertical", command=blocklist_listbox.yview)
-        scrollbar.pack(side=tk.RIGHT, fill="y")
-        blocklist_listbox.config(yscrollcommand=scrollbar.set)
-
-        def populate_blocklist_listbox():
-            """Helper function to refresh the content of the blocklist_listbox."""
-            blocklist_listbox.delete(0, tk.END)
-            current_blocklist = sorted(list(bc.get_blocklist())) # Sort for consistent display
+        def populate_blocklist_display():
+            for widget in self.blocklist_scrollable_frame.winfo_children():
+                widget.destroy()
+            current_blocklist = sorted(list(bc.get_blocklist()))
             for site in current_blocklist:
-                blocklist_listbox.insert(tk.END, site)
+                item_frame = ctk.CTkFrame(self.blocklist_scrollable_frame, fg_color=("gray85", "gray20"))
+                item_frame.pack(fill=ctk.X, pady=2, padx=2)
+                
+                site_label = ctk.CTkLabel(item_frame, text=site, font=self.small_font)
+                site_label.pack(side=ctk.LEFT, padx=5, pady=5, expand=True, fill=ctk.X) # Make label expand
+                
+                remove_button = ctk.CTkButton(item_frame, text="X", font=self.small_font, # Shorter text
+                                              width=30, height=20, corner_radius=5, # Smaller button
+                                              fg_color=self.stop_color, hover_color="#C0392B",
+                                              command=lambda s=site: remove_site(s))
+                remove_button.pack(side=ctk.RIGHT, padx=5, pady=5)
 
-        def add_site():
+        def add_site_to_blocklist():
             site = new_site_entry.get().strip().lower()
             if site:
                 if bc.add_to_blocklist(site):
-                    messagebox.showinfo("Success", f"'{site}' added to blocklist.")
-                    populate_blocklist_listbox() # Corrected call here
-                    new_site_entry.delete(0, tk.END)
+                    messagebox.showinfo("Success", f"'{site}' added to blocklist.", parent=editor)
+                    populate_blocklist_display()
+                    new_site_entry.delete(0, ctk.END)
                 else:
-                    messagebox.showwarning("Duplicate", f"'{site}' is already in the blocklist.")
+                    messagebox.showwarning("Duplicate", f"'{site}' is already in the blocklist.", parent=editor)
             else:
-                messagebox.showwarning("Input Error", "Please enter a site to add.")
-
-        ttk.Button(input_frame, text="Add", command=add_site, style='TButton').pack(side=tk.LEFT, padx=5)
-
-        def remove_selected_site():
-            selected_indices = blocklist_listbox.curselection()
-            if not selected_indices:
-                messagebox.showwarning("No Selection", "Please select a site to remove.")
-                return
-
-            selected_site = blocklist_listbox.get(selected_indices[0]) 
-            
-            if messagebox.askyesno("Confirm Removal", f"Are you sure you want to remove '{selected_site}' from the blocklist?"):
-                bc.remove_from_blocklist(selected_site)
-                messagebox.showinfo("Success", f"'{selected_site}' removed from blocklist.")
-                populate_blocklist_listbox() # Refresh the listbox
-
-        ttk.Button(editor, text="Remove Selected", command=remove_selected_site, style='Red.TButton').pack(pady=(5, 10))
+                messagebox.showwarning("Input Error", "Please enter a site to add.", parent=editor)
         
-        # Initial population of the listbox when the editor opens
-        populate_blocklist_listbox()
+        add_button = ctk.CTkButton(input_frame, text="Add", command=add_site_to_blocklist, font=self.button_font, width=60, corner_radius=6)
+        add_button.pack(side=ctk.LEFT)
 
-        ttk.Button(editor, text="Close", command=editor.destroy, style='TButton').pack(pady=(0, 10))
+        def remove_site(site_to_remove):
+            if messagebox.askyesno("Confirm Removal", f"Are you sure you want to remove '{site_to_remove}' from the blocklist?", parent=editor):
+                bc.remove_from_blocklist(site_to_remove)
+                messagebox.showinfo("Success", f"'{site_to_remove}' removed from blocklist.", parent=editor)
+                populate_blocklist_display()
+
+        populate_blocklist_display()
+        ctk.CTkButton(editor, text="Close", command=editor.destroy, font=self.button_font, corner_radius=8).pack(pady=(10, 10))
 
     def start_focus_with_timer(self):
-        """Starts the focus timer and initiates focus mode."""
         if self.timer_running:
-            messagebox.showwarning("Timer Running", "A focus session is already active. Please stop the current session first.")
+            messagebox.showwarning("Timer Running", "A focus session is already active. Please stop it first.")
             return
-
         try:
-            total_seconds = int(self.timer_entry.get()) # Get input in seconds
-            if total_seconds <= 0:
+            # The input from self.timer_entry.get() is in minutes, as per the label
+            # and user clarification.
+            # We will pass this value directly to FocusTimer.
+            duration_in_minutes = int(self.timer_entry.get())
+            if duration_in_minutes <= 0:
                 raise ValueError
         except ValueError:
-            messagebox.showerror("Invalid Input", "Please enter a valid number of seconds (greater than 0).")
+            messagebox.showerror("Invalid Input", "Please enter a valid number of minutes (greater than 0).")
             return
 
         self.start_focus()
-
-        self.focus_timer = FocusTimer(total_seconds, self._update_countdown_display, self._on_timer_complete)
-        self.focus_timer.start_timer()
-        self.timer_running = True
-        self.countdown_label.config(fg="#0000FF")
-
+        # Only proceed if start_focus didn't encounter a permission error that stopped it
+        if "Focus Mode ON" in self.status_label.cget("text"):
+            # Pass duration_in_minutes directly to FocusTimer,
+            # assuming FocusTimer is designed to accept its duration in minutes.
+            self.focus_timer = FocusTimer(duration_in_minutes, self._update_countdown_display, self._on_timer_complete)
+            self.focus_timer.start_timer()
+            self.timer_running = True
+            # Ensure text_color is set appropriately; using a theme color or a specific hex.
+            # Using a color that generally contrasts well. You can adjust as needed.
+            active_timer_color = ("#007ACC", "#60BFFF") # Dark mode, Light mode blue
+            self.countdown_label.configure(text_color=active_timer_color)
     def _update_countdown_display(self, mins, secs):
-        """Updates the countdown label in the GUI."""
-        self.root.after(0, lambda: self.countdown_label.config(text=f"⏳ Time Left: {mins:02}:{secs:02}"))
+        self.after(0, lambda: self.countdown_label.configure(text=f"⏳ Time Left: {mins:02}:{secs:02}"))
 
     def _on_timer_complete(self):
-        """Callback function when the focus timer finishes."""
-        self.root.after(0, lambda: self.countdown_label.config(text="✅ Time's up!", fg="#4CAF50"))
-        self.root.after(1000, self.stop_focus) # Stop focus mode after 1 second
+        self.after(0, lambda: self.countdown_label.configure(text="✅ Time's up!", text_color="#4CAF50")) # Use a defined color
+        self.after(1000, self.stop_focus)
 
     def view_activity_calendar(self):
-        """Opens a new window to display the focus activity calendar."""
-        calendar_viewer = tk.Toplevel(self.root)
+        calendar_viewer = ctk.CTkToplevel(self)
         calendar_viewer.title("Focus Activity Calendar")
-        calendar_viewer.geometry("600x550")
-        calendar_viewer.transient(self.root)
+        calendar_viewer.geometry("600x650") 
+        calendar_viewer.transient(self)
         calendar_viewer.grab_set()
-        calendar_viewer.focus_set()
-        calendar_viewer.configure(bg="#F0F0F0")
 
-        tk.Label(calendar_viewer, text="Your Focus History", font=("Arial", 16, "bold"), bg="#F0F0F0").pack(pady=10)
+        ctk.CTkLabel(calendar_viewer, text="Your Focus History", font=self.header_font).pack(pady=10)
 
-        sessions, _ = tc.get_session_history()
+        cal_container_frame = ctk.CTkFrame(calendar_viewer, corner_radius=10)
+        cal_container_frame.pack(pady=10, padx=10, fill=ctk.BOTH, expand=True)
         
+        sessions, _ = tc.get_session_history()
         daily_durations = {}
-        dates_to_highlight = [] 
+        dates_to_highlight = []
 
         for s in sessions:
             session_start_dt = datetime.fromisoformat(s['start'])
             session_date = session_start_dt.date()
-            
             daily_durations[session_date] = daily_durations.get(session_date, 0) + s['duration_minutes']
-            # Only add to highlight list if it's not already there to avoid duplicates for display
             if session_date not in dates_to_highlight:
-                dates_to_highlight.append(session_date) 
+                dates_to_highlight.append(session_date)
+        
+        ctk_bg_color = self._apply_appearance_mode(ctk.ThemeManager.theme["CTkFrame"]["fg_color"])
+        ctk_text_color = self._apply_appearance_mode(ctk.ThemeManager.theme["CTkLabel"]["text_color"])
+        ctk_btn_color = self._apply_appearance_mode(ctk.ThemeManager.theme["CTkButton"]["fg_color"])
 
-        self.cal = Calendar(calendar_viewer, selectmode='day',
+        self.cal = Calendar(cal_container_frame, selectmode='day',
                             font="Arial 10",
-                            background="white", foreground="black",
-                            normalbackground="white", normalforeground="black",
-                            headersbackground="#4CAF50", headersforeground="white",
-                            selectbackground="#FFC107", selectforeground="black",
-                            weekendbackground="#F5F5DC", weekendforeground="black",
-                            othermonthbackground="#E0E0E0", othermonthforeground="gray",
-                            bordercolor="#B0B0B0",
-                            locale='en_US', # Ensure locale is set for calendar display
-                            cursor="hand1",
-                            # Pass dates to be highlighted
-                            # The tags parameter expects a dictionary: {'tag_name': [list_of_dates]}
-                            tags={'focus_day': dates_to_highlight}) 
-        self.cal.pack(pady=10, padx=10, fill=tk.BOTH, expand=True)
+                            background=ctk_bg_color, 
+                            foreground=ctk_text_color,
+                            headersbackground=ctk_btn_color, 
+                            headersforeground=self._apply_appearance_mode(ctk.ThemeManager.theme["CTkButton"]["text_color"]),
+                            normalbackground=ctk_bg_color, 
+                            normalforeground=ctk_text_color,
+                            selectbackground=self._apply_appearance_mode(ctk.ThemeManager.theme["CTkEntry"]["fg_color"]),
+                            selectforeground=ctk_text_color,
+                            weekendbackground=self._apply_appearance_mode(ctk.ThemeManager.theme["CTkFrame"]["top_fg_color"]),
+                            weekendforeground=ctk_text_color,
+                            othermonthbackground=self._apply_appearance_mode(ctk.ThemeManager.theme["CTkFrame"]["top_fg_color"]),
+                            othermonthforeground="gray",
+                            bordercolor=self._apply_appearance_mode(ctk.ThemeManager.theme["CTkFrame"]["border_color"]),
+                            borderwidth=1, locale='en_US', cursor="hand1", date_pattern='yyyy-mm-dd')
+        self.cal.pack(pady=10, padx=10, fill=ctk.BOTH, expand=True)
+        
+        for focus_date in dates_to_highlight:
+             self.cal.calevent_create(focus_date, 'Focused Day', 'focus_day')
+        
+        highlight_color = "#3498DB"
+        self.cal.tag_config('focus_day', background=highlight_color, foreground='white')
 
-        # Configure the appearance of the 'focus_day' tag
-        self.cal.tag_config('focus_day', background='lightblue', foreground='blue') 
-
-        self.daily_summary_label = tk.Label(calendar_viewer, text="Click on a date to see daily summary.",
-                                             font=("Arial", 12), bg="#F0F0F0")
+        self.daily_summary_label = ctk.CTkLabel(calendar_viewer, text="Click on a date to see daily summary.", font=self.small_font)
         self.daily_summary_label.pack(pady=10)
 
-        def on_date_select(event):
-            selected_date_str = self.cal.get_date()
-            # Convert selected_date_str (e.g., 'MM/DD/YY') to a datetime.date object
-            selected_date = datetime.strptime(selected_date_str, '%m/%d/%y').date()
+        def on_date_select(event=None):
+            try:
+                selected_date_str = self.cal.get_date()
+                selected_date = datetime.strptime(selected_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                 self.daily_summary_label.configure(text="Please select a valid date.")
+                 return
 
             total_for_day = daily_durations.get(selected_date, 0)
-            
             if total_for_day > 0:
-                self.daily_summary_label.config(text=f"Focus Time on {selected_date.strftime('%Y-%m-%d')}: {total_for_day:.1f} minutes")
+                self.daily_summary_label.configure(text=f"Focus Time on {selected_date.strftime('%Y-%m-%d')}: {total_for_day:.1f} minutes")
             else:
-                self.daily_summary_label.config(text=f"No focus sessions on {selected_date.strftime('%Y-%m-%d')}.")
+                self.daily_summary_label.configure(text=f"No focus sessions on {selected_date.strftime('%Y-%m-%d')}.")
         
         self.cal.bind("<<CalendarSelected>>", on_date_select)
+        on_date_select() 
 
         current_streak, longest_streak = tc.get_streak_info()
         _, total_duration_all = tc.get_session_history()
         
-        tk.Label(calendar_viewer, text=f"Current Streak: {current_streak} days | Longest Streak: {longest_streak} days",
-                 font=("Arial", 10, "bold"), bg="#F0F0F0").pack(pady=(0, 5))
-        tk.Label(calendar_viewer, text=f"Overall Focus Time: {total_duration_all:.1f} minutes",
-                 font=("Arial", 10, "bold"), bg="#F0F0F0").pack(pady=(0, 10))
+        ctk.CTkLabel(calendar_viewer, text=f"Current Streak: {current_streak} days | Longest Streak: {longest_streak} days",
+                     font=self.small_font, text_color=("gray10", "gray90")).pack(pady=(0, 5))
+        ctk.CTkLabel(calendar_viewer, text=f"Overall Focus Time: {total_duration_all:.1f} minutes",
+                     font=self.small_font, text_color=("gray10", "gray90")).pack(pady=(0, 10))
 
-        ttk.Button(calendar_viewer, text="Close", command=calendar_viewer.destroy, style='TButton').pack(pady=5)
+        ctk.CTkButton(calendar_viewer, text="Close", command=calendar_viewer.destroy, font=self.button_font, corner_radius=8).pack(pady=5)
 
 
 if __name__ == "__main__":
     if not is_admin():
-        print("❌ Please run this script as administrator.")
-        messagebox.showerror("Permission Error", "This application requires administrator privileges to modify your system's hosts file. Please run as Administrator.")
+        try:
+            root_check = ctk.CTk()
+            root_check.withdraw()
+            messagebox.showerror("Permission Error", "This application requires administrator privileges. Please run as Administrator.")
+            root_check.destroy()
+        except Exception:
+            print("❌ Please run this script as administrator.")
         sys.exit(1)
 
-    # Initialize the databases when the application starts
-    # This ensures tables are created/connected before any other DB operations
     tc.init_db()
     bc.init_db()
 
-    root = tk.Tk()
-    app = BlockerGUI(root)
-    root.mainloop()
+    app = BlockerGUI()
+    app.mainloop()
